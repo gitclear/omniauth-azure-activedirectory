@@ -107,6 +107,7 @@ module OmniAuth
                                         redirect_uri: callback_url,
                                         response_mode: response_mode,
                                         response_type: response_type,
+                                        resource: resource,
                                         nonce: new_nonce)
         uri.to_s
       end
@@ -217,6 +218,11 @@ module OmniAuth
         options[:response_type] || DEFAULT_RESPONSE_TYPE
       end
 
+      # Overridden by GitClear
+      def resource
+        options[:resource]
+      end
+
       ##
       # The response_mode that will be set in the authorization request query
       # parameters. Can be overridden by the client, but it shouldn't need to
@@ -317,7 +323,7 @@ module OmniAuth
         { verify_expiration: true,
           verify_not_before: true,
           verify_iat: true,
-          verify_iss: true,
+          verify_iss: false,
           'iss' => issuer,
           verify_aud: true,
           'aud' => client_id }
