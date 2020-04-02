@@ -1,9 +1,9 @@
 $LOAD_PATH.push File.expand_path('../lib', __FILE__)
-require 'omniauth/azure_activedirectory/version'
+require 'omniauth/azure/version'
 
 Gem::Specification.new do |s|
   s.name            = 'omniauth-azure-activedirectory'
-  s.version         = OmniAuth::AzureActiveDirectory::VERSION
+  s.version         = OmniAuth::Azure::VERSION
   s.author          = 'Microsoft Corporation'
   s.email           = 'nugetaad@microsoft.com'
   s.summary         = 'Azure Active Directory strategy for OmniAuth'

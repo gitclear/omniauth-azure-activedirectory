@@ -37,7 +37,7 @@ use Rack::Session::Cookie, secret: 'top secret'
 
 use OmniAuth::Builder do
   provider :amazon, ENV['AMAZON_KEY'], ENV['AMAZON_SECRET']
-  provider :azure_activedirectory, ENV['AAD_KEY'], ENV['AAD_TENANT']
+  provider :azure, ENV['AAD_KEY'], ENV['AAD_TENANT']
   provider :github, ENV['GITHUB_KEY'], ENV['GITHUB_SECRET']
   provider :google_oauth2, ENV['GOOGLE_KEY'], ENV['GOOGLE_SECRET']
 end

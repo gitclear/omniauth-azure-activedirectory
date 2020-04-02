@@ -28,8 +28,8 @@ require 'securerandom'
 module OmniAuth
   module Strategies
     # A strategy for authentication against Azure Active Directory.
-    class AzureActiveDirectory
-      include OmniAuth::AzureActiveDirectory
+    class Azure
+      include OmniAuth::Azure
       include OmniAuth::Strategy
 
       class OAuthError < StandardError; end
@@ -42,7 +42,7 @@ module OmniAuth
       #    require 'omniauth-azure-activedirectory'
       #
       #    use OmniAuth::Builder do
-      #      provider :azure_activedirectory, ENV['AAD_KEY'], ENV['AAD_TENANT']
+      #      provider :azure, ENV['AAD_KEY'], ENV['AAD_TENANT']
       #    end
       #
       args [:client_id, :tenant]
@@ -332,4 +332,4 @@ module OmniAuth
   end
 end
 
-OmniAuth.config.add_camelization 'azure_activedirectory', 'AzureActiveDirectory'
+OmniAuth.config.add_camelization 'azure', 'Azure'

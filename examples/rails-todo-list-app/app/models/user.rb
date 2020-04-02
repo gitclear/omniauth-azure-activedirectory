@@ -17,7 +17,7 @@ class User < ActiveRecord::Base
     if auth_hash[:credentials]['code']
       user.redeem_code(
         auth_hash[:credentials]['code'],
-        'https://localhost:9292/auth/azureactivedirectory/callback')
+        'https://localhost:9292/auth/azure/callback')
     end
     user.save!
     user

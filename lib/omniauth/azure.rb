@@ -20,5 +20,5 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-require 'omniauth/azure_activedirectory/version'
-require 'omniauth/strategies/azure_activedirectory'
+require 'omniauth/azure/version'
+require 'omniauth/strategies/azure'

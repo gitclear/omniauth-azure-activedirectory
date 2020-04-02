@@ -31,7 +31,7 @@ get '/' do
   <<-HTML
     <h3>Hello there!</h3>
     <a href='/auth/amazon'>Sign in with Amazon</a>
-    <a href='/auth/azureactivedirectory'>Sign in with AzureAD</a>
+    <a href='/auth/azure'>Sign in with AzureAD</a>
     <a href='/auth/github'>Sign in with Github</a>
     <a href='/auth/google_oauth2'>Sign in with Google</a>
   HTML
