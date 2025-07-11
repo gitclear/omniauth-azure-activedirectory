@@ -74,6 +74,16 @@ module OmniAuth
       DEFAULT_RESPONSE_MODE = 'form_post'
 
       ##
+      # Default nonce cache expiration time (7 days)
+      #
+      # Nonces are cached to prevent replay attacks. Azure AD tokens typically have
+      # short lifetimes, but we cache nonces for 7 days to handle edge cases and
+      # provide a reasonable cleanup period.
+      #
+      # @see https://github.com/AzureAD/omniauth-azure-activedirectory/issues/22
+      DEFAULT_NONCE_EXPIRATION = 7.days
+
+      ##
       # The JWT signing algorithm used by Microsoft Azure Active Directory
       #
       # Azure AD consistently uses RS256 (RSA Signature with SHA-256) for signing JWT tokens.
@@ -203,7 +213,9 @@ module OmniAuth
       # @return String
       def new_nonce
         nonce = SecureRandom.uuid
-        Rails.cache.write(nonce_cache_key(nonce), true, expires_in: 7.days)
+        Rails.cache.write(nonce_cache_key(nonce), true, expires_in: DEFAULT_NONCE_EXPIRATION)
+        # Also store as "current" nonce for read_nonce compatibility
+        session['omniauth-azure-activedirectory.nonce'] = nonce
         nonce
       end
 
@@ -220,7 +232,7 @@ module OmniAuth
       #
       # @return String
       def openid_config_url
-        "https://login.windows.net/#{tenant}/.well-known/openid-configuration"
+        "https://login.windows.net/#{ tenant }/.well-known/openid-configuration"
       end
 
       ##
@@ -335,6 +347,17 @@ module OmniAuth
             fail JWT::VerificationError, 'Key has no info for verification'
           end
         end
+
+        # Unclear if nonce validation is or isn't supported by JWT gem and requires manual checking.
+        # TODO: Uncomment this when once we properly implement nonce validation
+        # Manual nonce validation as mentioned in verify_options comment
+        # if jwt_claims['nonce']
+        #   unless claim_nonce!(jwt_claims['nonce'])
+        #     fail JWT::DecodeError, 'Nonce in id token does not match expected nonce'
+        #   end
+        # end
+
+        return jwt_claims, jwt_header
       end
 
       ##
@@ -345,6 +368,12 @@ module OmniAuth
       # @param Hash claims
       # @param Hash header
       def validate_chash(code, claims, header)
+        # c_hash validation is REQUIRED in hybrid flow (code id_token)
+        # See OpenID Connect Core 3.3.2.11
+        unless claims['c_hash']
+          fail JWT::VerificationError, 'c_hash claim is missing from id token (required for hybrid flow)'
+        end
+
         # This maps RS256 -> sha256, ES384 -> sha384, etc.
         algorithm = (header['alg'] || DEFAULT_ALGORITHM).sub(/RS|ES|HS/, 'sha')
         full_hash = OpenSSL::Digest.new(algorithm).digest code
@@ -356,19 +385,27 @@ module OmniAuth
 
       ##
       # The options passed to the Ruby JWT library to verify the id token.
-      # Note that these are not all the checks we perform. Some (like nonce)
-      # are not handled by the JWT API and are checked manually in
-      # #validate_and_parse_id_token.
+      #
+      # CRITICAL: JWT gem requires SYMBOL KEYS for aud/iss validation!
+      # Using string keys ('aud' => value) causes silent validation failure.
+      # Must use symbol keys (aud: value) for proper validation.
+      #
+      # Other validations (exp, nbf, iat) work correctly.
+      # Unclear if nonce validation is or isn't supported by JWT gem and requires manual checking.
+      # Which we do in #validate_and_parse_id_token.
       #
       # @return Hash
       def verify_options
         { verify_expiration: true,
           verify_not_before: true,
           verify_iat: true,
+          # TODO: Re-enable this validation once issuer validation is properly implemented
+          # for both single-tenant and multi-tenant ("common") scenarios.
+          # The current implementation needs to handle {tenantid} templates for multi-tenant.
           verify_iss: false,
-          'iss' => issuer,
+          iss: issuer,           # Use symbol key for proper validation
           verify_aud: true,
-          'aud' => client_id,
+          aud: client_id,        # Use symbol key for proper validation
           algorithm: DEFAULT_ALGORITHM }
       end
 

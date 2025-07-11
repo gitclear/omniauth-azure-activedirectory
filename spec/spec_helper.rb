@@ -22,6 +22,7 @@
 
 require 'webmock/rspec'
 require 'simplecov'
+require 'active_support/core_ext/numeric/time' # For 7.days time helper
 
 SimpleCov.start do
   # Don't measure coverage on test files.
@@ -29,6 +30,49 @@ SimpleCov.start do
 end
 
 WebMock.disable_net_connect!(allow_localhost: true)
+
+# Mock Rails.cache for testing
+class MockRailsCache
+  def initialize
+    @cache = {}
+  end
+
+  def write(key, value, options = {})
+    @cache[key] = value
+    # Handle expires_in option (ActiveSupport duration objects)
+    if expires_in = options[:expires_in]
+      # Convert ActiveSupport duration to seconds if needed
+      expires_in = expires_in.to_i if expires_in.respond_to?(:to_i)
+      # In a real implementation, we'd set up expiration
+      # For tests, we'll just store the value without expiration logic
+    end
+    value
+  end
+
+  def read(key)
+    @cache[key]
+  end
+
+  def delete(key)
+    @cache.delete(key)
+  end
+
+  # Helper method to populate cache from session (for test setup)
+  def populate_from_session(session)
+    if session && session['omniauth-azure-activedirectory.nonce']
+      nonce = session['omniauth-azure-activedirectory.nonce']
+      nonce_key = "omniauth_azure_activedirectory:nonce:#{nonce}"
+      write(nonce_key, true)
+    end
+  end
+end
+
+# Set up Rails mock for tests
+module Rails
+  def self.cache
+    @cache ||= MockRailsCache.new
+  end
+end
 
 RSpec.configure do |config|
   config.expect_with :rspec do |expectations|
@@ -41,4 +85,15 @@ RSpec.configure do |config|
 
   config.warnings = true
   config.order = :random
+
+  # Populate mock cache with nonces from test session setup
+  config.before(:each) do |example|
+    Rails.cache.instance_variable_set(:@cache, {}) # Reset cache
+
+    # Look for env variable in the test context and populate cache
+    if defined?(env) && respond_to?(:env)
+      session = env['rack.session'] rescue nil
+      Rails.cache.populate_from_session(session) if session
+    end
+  end
 end
