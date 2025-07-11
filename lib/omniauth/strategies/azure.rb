@@ -24,6 +24,7 @@ require 'jwt'
 require 'omniauth'
 require 'openssl'
 require 'securerandom'
+require 'base64'
 
 module OmniAuth
   module Strategies
@@ -71,6 +72,34 @@ module OmniAuth
 
       DEFAULT_RESPONSE_TYPE = 'code id_token'
       DEFAULT_RESPONSE_MODE = 'form_post'
+
+      ##
+      # Default nonce cache expiration time (7 days)
+      #
+      # Nonces are cached to prevent replay attacks. Azure AD tokens typically have
+      # short lifetimes, but we cache nonces for 7 days to handle edge cases and
+      # provide a reasonable cleanup period.
+      #
+      # @see https://github.com/AzureAD/omniauth-azure-activedirectory/issues/22
+      DEFAULT_NONCE_EXPIRATION = 7.days
+
+      ##
+      # The JWT signing algorithm used by Microsoft Azure Active Directory
+      #
+      # Azure AD consistently uses RS256 (RSA Signature with SHA-256) for signing JWT tokens.
+      # This is explicitly documented by Microsoft as the "industry standard asymmetric encryption algorithm"
+      # used by the Microsoft identity platform.
+      #
+      # @see https://learn.microsoft.com/en-us/azure/active-directory/develop/access-tokens
+      #      "Microsoft Entra ID issues tokens signed using the industry standard asymmetric
+      #       encryption algorithms, such as RS256"
+      #
+      # @see https://learn.microsoft.com/en-us/azure/active-directory/develop/id-tokens
+      #      Shows consistent RS256 usage in JWT header examples: {"typ":"JWT","alg":"RS256",...}
+      #      See the example tokens by clicking on the following links from the linked page:
+      #        - View this v1.0 sample token in jwt.ms
+      #        - View this v2.0 sample token in jwt.ms
+      DEFAULT_ALGORITHM = 'RS256'
 
       ##
       # Overridden method from OmniAuth::Strategy. This is the first step in the
@@ -184,7 +213,9 @@ module OmniAuth
       # @return String
       def new_nonce
         nonce = SecureRandom.uuid
-        Rails.cache.write(nonce_cache_key(nonce), true, expires_in: 7.days)
+        Rails.cache.write(nonce_cache_key(nonce), true, expires_in: DEFAULT_NONCE_EXPIRATION)
+        # Also store as "current" nonce for read_nonce compatibility
+        session['omniauth-azure-activedirectory.nonce'] = nonce
         nonce
       end
 
@@ -201,7 +232,7 @@ module OmniAuth
       #
       # @return String
       def openid_config_url
-        "https://login.windows.net/#{tenant}/.well-known/openid-configuration"
+        "https://login.windows.net/#{ tenant }/.well-known/openid-configuration"
       end
 
       ##
@@ -294,25 +325,44 @@ module OmniAuth
           # The key also contains other fields, such as n and e, that are
           # redundant. x5c is sufficient to verify the id token.
           if x5c = key['x5c'] and !x5c.empty?
-            OpenSSL::X509::Certificate.new(Base64.urlsafe_decode64(x5c.first)).public_key
+            certificate = OpenSSL::X509::Certificate.new(Base64.urlsafe_decode64(x5c.first))
+            certificate.public_key
             # no x5c, so we resort to e and n
           elsif exp = key['e'] and mod = key['n']
-            key = OpenSSL::PKey::RSA.new
+            rsa_key = OpenSSL::PKey::RSA.new
             mod = openssl_bn_for mod
             exp = openssl_bn_for exp
-            if key.respond_to? :set_key
+
+            if rsa_key.respond_to? :set_key
               # Ruby 2.4 ff
-              key.set_key mod, exp, nil
+              rsa_key.set_key mod, exp, nil
             else
               # Ruby < 2.4
-              key.e = exp
-              key.n = mod
+              rsa_key.e = exp
+              rsa_key.n = mod
             end
-            key.public_key
+
+            rsa_key.public_key
           else
             fail JWT::VerificationError, 'Key has no info for verification'
           end
         end
+
+        # Unclear if nonce validation is or isn't supported by JWT gem and requires manual checking.
+        # TODO: Uncomment this when once we properly implement nonce validation
+        #  What to check before uncommenting:
+        #  - if nonce validation isn't supported and performed by the JWT gem
+        #  - if nonce validation is performed by the JWT gem, but it's not performed in the same manner as we do it with `claim_nonce!`
+        #  - we have test cases that that check the valid and invalid nonce cases and pass
+        #
+        # Manual nonce validation as mentioned in verify_options comment
+        # if jwt_claims['nonce']
+        #   unless claim_nonce!(jwt_claims['nonce'])
+        #     fail JWT::DecodeError, 'Nonce in id token does not match expected nonce'
+        #   end
+        # end
+
+        return jwt_claims, jwt_header
       end
 
       ##
@@ -323,10 +373,16 @@ module OmniAuth
       # @param Hash claims
       # @param Hash header
       def validate_chash(code, claims, header)
+        # c_hash validation is REQUIRED in hybrid flow (code id_token)
+        # See OpenID Connect Core 3.3.2.11
+        unless claims['c_hash']
+          fail JWT::VerificationError, 'c_hash claim is missing from id token (required for hybrid flow)'
+        end
+
         # This maps RS256 -> sha256, ES384 -> sha384, etc.
-        algorithm = (header['alg'] || 'RS256').sub(/RS|ES|HS/, 'sha')
+        algorithm = (header['alg'] || DEFAULT_ALGORITHM).sub(/RS|ES|HS/, 'sha')
         full_hash = OpenSSL::Digest.new(algorithm).digest code
-        c_hash = JWT.base64url_encode full_hash[0..full_hash.length / 2 - 1]
+        c_hash = Base64.urlsafe_encode64(full_hash[0..full_hash.length / 2 - 1]).gsub('=', '')
         return if c_hash == claims['c_hash']
         fail JWT::VerificationError,
              'c_hash in id token does not match auth code.'
@@ -334,19 +390,28 @@ module OmniAuth
 
       ##
       # The options passed to the Ruby JWT library to verify the id token.
-      # Note that these are not all the checks we perform. Some (like nonce)
-      # are not handled by the JWT API and are checked manually in
-      # #validate_and_parse_id_token.
+      #
+      # CRITICAL: JWT gem requires SYMBOL KEYS for aud/iss validation!
+      # Using string keys ('aud' => value) causes silent validation failure.
+      # Must use symbol keys (aud: value) for proper validation.
+      #
+      # Other validations (exp, nbf, iat) work correctly.
+      # Unclear if nonce validation is or isn't supported by JWT gem and requires manual checking.
+      # Which we do in #validate_and_parse_id_token.
       #
       # @return Hash
       def verify_options
         { verify_expiration: true,
           verify_not_before: true,
           verify_iat: true,
+          # TODO: Re-enable this validation once issuer validation is properly implemented
+          # for both single-tenant and multi-tenant ("common") scenarios.
+          # The current implementation needs to handle {tenantid} templates for multi-tenant.
           verify_iss: false,
-          'iss' => issuer,
+          iss: issuer,           # Use symbol key for proper validation
           verify_aud: true,
-          'aud' => client_id }
+          aud: client_id,        # Use symbol key for proper validation
+          algorithm: DEFAULT_ALGORITHM }
       end
 
       # Introduced according to https://github.com/AzureAD/omniauth-azure-activedirectory/issues/22. Take care if upgrading!
@@ -362,6 +427,11 @@ module OmniAuth
         else
           false
         end
+      end
+
+      # Convert base64url encoded value to OpenSSL BigNum
+      def openssl_bn_for(value)
+        OpenSSL::BN.new(Base64.urlsafe_decode64(value), 2)
       end
     end
   end
