@@ -325,8 +325,8 @@ module OmniAuth
           # The key also contains other fields, such as n and e, that are
           # redundant. x5c is sufficient to verify the id token.
           if x5c = key['x5c'] and !x5c.empty?
-            public_key = OpenSSL::X509::Certificate.new(Base64.urlsafe_decode64(x5c.first)).public_key
-            public_key
+            certificate = OpenSSL::X509::Certificate.new(Base64.urlsafe_decode64(x5c.first))
+            certificate.public_key
             # no x5c, so we resort to e and n
           elsif exp = key['e'] and mod = key['n']
             rsa_key = OpenSSL::PKey::RSA.new
@@ -350,6 +350,11 @@ module OmniAuth
 
         # Unclear if nonce validation is or isn't supported by JWT gem and requires manual checking.
         # TODO: Uncomment this when once we properly implement nonce validation
+        #  What to check before uncommenting:
+        #  - if nonce validation isn't supported and performed by the JWT gem
+        #  - if nonce validation is performed by the JWT gem, but it's not performed in the same manner as we do it with `claim_nonce!`
+        #  - we have test cases that that check the valid and invalid nonce cases and pass
+        #
         # Manual nonce validation as mentioned in verify_options comment
         # if jwt_claims['nonce']
         #   unless claim_nonce!(jwt_claims['nonce'])
