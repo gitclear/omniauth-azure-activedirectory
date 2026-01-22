@@ -139,7 +139,8 @@ module OmniAuth
                                         response_mode: response_mode,
                                         response_type: response_type,
                                         resource: resource,
-                                        nonce: new_nonce)
+                                        nonce: new_nonce,
+                                        prompt: "consent")
         uri.to_s
       end
 
