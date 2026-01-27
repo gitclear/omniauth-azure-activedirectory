@@ -1,6 +1,7 @@
 *.gem
 *.log
 .bundle
+.idea
 coverage
 .powenv
 .rspec
