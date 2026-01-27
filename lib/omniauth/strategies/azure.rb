@@ -98,7 +98,7 @@ module OmniAuth
                                         redirect_uri: callback_url,
                                         response_mode: response_mode,
                                         response_type: response_type,
-                                        resource: resource,
+                                        scope: scope,
                                         nonce: new_nonce,
                                         prompt: "consent")
         uri.to_s
@@ -164,7 +164,7 @@ module OmniAuth
       #
       # @return String
       def openid_config_url
-        "https://login.windows.net/#{ tenant }/.well-known/openid-configuration"
+        "https://login.microsoftonline.com/#{ tenant }/v2.0/.well-known/openid-configuration"
       end
 
       ##
@@ -177,9 +177,8 @@ module OmniAuth
         options[:response_type] || DEFAULT_RESPONSE_TYPE
       end
 
-      # Overridden by GitClear
-      def resource
-        options[:resource]
+      def scope
+        options[:scope]
       end
 
       ##
