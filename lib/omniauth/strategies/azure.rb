@@ -82,6 +82,7 @@ module OmniAuth
         end
         @session_state = request.params['session_state']
         @code = request.params['code']
+        @state = request.params['state']  # ADD THIS LINE
         super
       end
 
@@ -94,13 +95,18 @@ module OmniAuth
       # @return String
       def authorize_endpoint_url
         uri = URI(openid_config['authorization_endpoint'])
-        uri.query = URI.encode_www_form(client_id: client_id,
-                                        redirect_uri: callback_url,
-                                        response_mode: response_mode,
-                                        response_type: response_type,
-                                        scope: scope,
-                                        nonce: new_nonce,
-                                        prompt: "consent")
+        params = {
+          client_id: client_id,
+          redirect_uri: callback_url,
+          response_mode: response_mode,
+          response_type: response_type,
+          scope: scope,
+          nonce: new_nonce,
+          prompt: "consent"
+        }
+        # Include state parameter if configured
+        params[:state] = options[:state] if options[:state]
+        uri.query = URI.encode_www_form(params)
         uri.to_s
       end
 
