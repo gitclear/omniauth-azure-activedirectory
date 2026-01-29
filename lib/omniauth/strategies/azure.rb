@@ -77,9 +77,8 @@ module OmniAuth
       # consuming application.
       def callback_phase
         error = request.params['error_reason'] || request.params['error']
-        if error
-          fail!(error) and return
-        end
+        return fail!(error) if error
+
         @session_state = request.params['session_state']
         @code = request.params['code']
         @state = request.params['state']  # ADD THIS LINE
@@ -101,8 +100,7 @@ module OmniAuth
           response_mode: response_mode,
           response_type: response_type,
           scope: scope,
-          nonce: new_nonce,
-          prompt: "consent"
+          nonce: new_nonce
         }
         # Include state parameter if configured
         params[:state] = options[:state] if options[:state]
