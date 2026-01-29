@@ -100,9 +100,12 @@ module OmniAuth
           response_mode: response_mode,
           response_type: response_type,
           scope: scope,
-          nonce: new_nonce
+          nonce: new_nonce,
         }
-        # Include state parameter if configured
+        # Include optional parameters if configured
+        params[:prompt] = options[:prompt] if options[:prompt]
+        params[:domain_hint] = options[:domain_hint] if options[:domain_hint]
+        params[:login_hint] = options[:login_hint] if options[:login_hint]
         params[:state] = options[:state] if options[:state]
         uri.query = URI.encode_www_form(params)
         uri.to_s
